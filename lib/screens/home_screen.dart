@@ -1,19 +1,21 @@
 import 'package:flutter/material.dart';
 import '../models/device_model.dart';
-import '../models/device_type.dart';
-import '../services/storage_service.dart';
+import '../controllers/device_controller.dart';
 import 'add_device_screen.dart';
-import 'device_control_screen.dart';
+import '../widgets/curtain_control_widget.dart';
+import '../widgets/light_control_widget.dart';
+import '../widgets/tv_control_widget.dart';
+import '../widgets/device_card.dart';
 
 class HomeScreen extends StatefulWidget {
-  const HomeScreen({Key? key}) : super(key: key);
+  const HomeScreen({super.key});
 
   @override
   State<HomeScreen> createState() => _HomeScreenState();
 }
 
 class _HomeScreenState extends State<HomeScreen> {
-  List<DeviceModel> _devices = [];
+  final DeviceController _controller = DeviceController();
 
   @override
   void initState() {
@@ -22,59 +24,63 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Future<void> _loadDevices() async {
-    final loadedDevices = await StorageService.loadDevices();
-    setState(() {
-      _devices = loadedDevices;
-    });
+    await _controller.loadDevices();
+    setState(() {});
   }
 
-  Future<void> _deleteDevice(String id) async {
-    await StorageService.removeDevice(id);
-    await _loadDevices();
+  void _addDevice(Device device) async {
+    await _controller.addDevice(device);
+    setState(() {});
   }
 
-  Future<void> _addDevice() async {
-    final device = await Navigator.of(context).push<DeviceModel>(
-      MaterialPageRoute(builder: (context) => const AddDeviceScreen()),
+  void _removeDevice(Device device) async {
+    await _controller.removeDevice(device);
+    setState(() {});
+  }
+
+  void _openControl(Device device) {
+  if (device.type == DeviceType.curtain) {
+    Navigator.push(
+      context,
+      MaterialPageRoute(builder: (_) => CurtainControlWidget(device: device)),
     );
-
-    if (device != null) {
-      await StorageService.saveDevice(device);
-      await _loadDevices();
-    }
+  } else if (device.type == DeviceType.light) {
+    Navigator.push(
+      context,
+      MaterialPageRoute(builder: (_) => LightControlWidget(device: device)),
+    );
+  } else if (device.type == DeviceType.tv) {
+    Navigator.push(
+      context,
+      MaterialPageRoute(builder: (_) => TVControlWidget(device: device)),
+    );
   }
+}
+
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(title: const Text('Smart Home')),
-      body: _devices.isEmpty
-          ? const Center(child: Text('Chưa có thiết bị'))
-          : ListView.builder(
-              itemCount: _devices.length,
-              itemBuilder: (context, index) {
-                final device = _devices[index];
-                return ListTile(
-                  leading: Icon(deviceTypeToIcon(device.type)),
-                  title: Text(device.name),
-                  subtitle: Text(deviceTypeToString(device.type)),
-                  trailing: IconButton(
-                    icon: const Icon(Icons.delete, color: Colors.red),
-                    onPressed: () => _deleteDevice(device.id),
-                  ),
-                  onTap: () {
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (context) => DeviceControlScreen(device: device),
-                      ),
-                    );
-                  },
-                );
-              },
-            ),
+      body: ListView(
+        children: _controller.devices.map((device) {
+          return DeviceCard(
+            device: device,
+            onTap: () => _openControl(device),
+            onDelete: () => _removeDevice(device),
+          );
+        }).toList(),
+      ),
       floatingActionButton: FloatingActionButton(
-        onPressed: _addDevice,
+        onPressed: () async {
+          final result = await Navigator.push(
+            context,
+            MaterialPageRoute(builder: (_) => const AddDeviceScreen()),
+          );
+          if (result != null && result is Device) {
+            _addDevice(result);
+          }
+        },
         child: const Icon(Icons.add),
       ),
     );

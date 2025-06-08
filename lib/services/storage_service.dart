@@ -1,32 +1,21 @@
-import 'dart:convert';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'dart:convert';
 import '../models/device_model.dart';
 
 class StorageService {
   static const _key = 'devices';
 
-  static Future<void> saveDevice(DeviceModel device) async {
+  static Future<void> saveDevices(List<Device> devices) async {
     final prefs = await SharedPreferences.getInstance();
-    final list = await loadDevices();
-    list.removeWhere((d) => d.id == device.id);
-    list.add(device);
-    final encoded = jsonEncode(list.map((e) => e.toJson()).toList());
-    await prefs.setString(_key, encoded);
+    final data = jsonEncode(devices.map((d) => d.toJson()).toList());
+    await prefs.setString(_key, data);
   }
 
-  static Future<List<DeviceModel>> loadDevices() async {
+  static Future<List<Device>> loadDevices() async {
     final prefs = await SharedPreferences.getInstance();
-    final json = prefs.getString(_key);
-    if (json == null) return [];
-    final List decoded = jsonDecode(json);
-    return decoded.map((e) => DeviceModel.fromJson(e)).toList();
-  }
-
-  static Future<void> removeDevice(String id) async {
-    final prefs = await SharedPreferences.getInstance();
-    final list = await loadDevices();
-    list.removeWhere((d) => d.id == id);
-    final encoded = jsonEncode(list.map((e) => e.toJson()).toList());
-    await prefs.setString(_key, encoded);
+    final data = prefs.getString(_key);
+    if (data == null) return [];
+    final list = jsonDecode(data) as List;
+    return list.map((e) => Device.fromJson(e)).toList();
   }
 }

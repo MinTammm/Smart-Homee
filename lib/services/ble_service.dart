@@ -1,53 +1,37 @@
-import 'dart:convert';
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 
-class BleService {
-  BluetoothDevice? device;
-  BluetoothCharacteristic? commandChar;
-  BluetoothCharacteristic? statusChar;
+class BLEService {
+  static Future<List<BluetoothDevice>> scanDevices() async {
+    final devices = <BluetoothDevice>{};
 
-  Future<bool> connect(BluetoothDevice device) async {
-    try {
-      this.device = device;
-      await device.connect(autoConnect: false);
-      var services = await device.discoverServices();
+    await FlutterBluePlus.startScan(timeout: const Duration(seconds: 4));
 
-      for (var service in services) {
-        for (var characteristic in service.characteristics) {
-          if (characteristic.properties.write) {
-            commandChar = characteristic;
-          }
-          if (characteristic.properties.read || characteristic.properties.notify) {
-            statusChar = characteristic;
-          }
-        }
+    final subscription = FlutterBluePlus.scanResults.listen((results) {
+      for (final r in results) {
+        devices.add(r.device);
       }
+    });
 
-      return commandChar != null;
-    } catch (e) {
-      return false;
-    }
+    await Future.delayed(const Duration(seconds: 4));
+    await FlutterBluePlus.stopScan();
+    await subscription.cancel();
+
+    return devices.toList();
   }
 
-  Future<bool> sendCommand(String command) async {
-    try {
-      await commandChar?.write(utf8.encode(command));
-      return true;
-    } catch (_) {
-      return false;
-    }
-  }
+  static Future<void> sendData(BluetoothDevice device, String data) async {
+    await device.connect();
+    // Giả sử ESP32 có service/characteristic UUID sau, bạn thay theo firmware:
+    final serviceUuid = Guid("0000ffe0-0000-1000-8000-00805f9b34fb");
+    final charUuid = Guid("0000ffe1-0000-1000-8000-00805f9b34fb");
 
-  Future<int?> getCurtainStatus() async {
-    try {
-      var value = await statusChar?.read();
-      return int.tryParse(utf8.decode(value ?? []));
-    } catch (_) {
-      return null;
-    }
-  }
+    final services = await device.discoverServices();
+    final service = services.firstWhere((s) => s.uuid == serviceUuid);
+    final characteristic = service.characteristics.firstWhere((c) => c.uuid == charUuid);
 
-  Future<void> disconnect() async {
-    await device?.disconnect();
+    final bytes = data.codeUnits;
+    await characteristic.write(bytes);
+
+    await device.disconnect();
   }
 }
