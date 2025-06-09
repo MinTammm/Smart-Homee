@@ -1,4 +1,4 @@
-package com.example.my_esp32_app
+package com.example.smart_home
 
 import io.flutter.embedding.android.FlutterActivity
 

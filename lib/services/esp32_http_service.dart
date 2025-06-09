@@ -1,4 +1,5 @@
 import 'package:http/http.dart' as http;
+import 'dart:convert'; // Thêm để decode JSON
 
 class ESP32HttpService {
   /// Gửi lệnh điều khiển (mở, đóng, dừng, bật, tắt...)
@@ -18,10 +19,11 @@ class ESP32HttpService {
       final url = Uri.parse('http://$address/status');
       final response = await http.get(url);
       if (response.statusCode == 200) {
-        return int.tryParse(response.body);
+        final json = jsonDecode(response.body);
+        return json['percent'] as int?;
       }
     } catch (e) {
-      return null;
+      print('Lỗi khi lấy phần trăm rèm: $e');
     }
     return null;
   }
