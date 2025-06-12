@@ -5,7 +5,7 @@ class ESP32HttpService {
   /// Gửi lệnh điều khiển (mở, đóng, dừng, bật, tắt...)
   static Future<bool> sendCommand(String address, String command) async {
     try {
-      final url = Uri.parse('http://$address/$command');
+      final url = Uri.parse('http://$address/command?cmd=$command');
       print('[ESP32HttpService] Gửi lệnh: GET $url');
       final response = await http.get(url);
       print('[ESP32HttpService] Phản hồi: ${response.statusCode} - ${response.body}');
@@ -15,6 +15,8 @@ class ESP32HttpService {
       return false;
     }
   }
+
+
 
   /// Lấy phần trăm mở của rèm
   static Future<int?> getCurtainPercentage(String address) async {
