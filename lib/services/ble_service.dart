@@ -1,6 +1,10 @@
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 
 class BLEService {
+  static final Guid serviceUuid = Guid("12345678-1234-1234-1234-123456789abc");
+  static final Guid rxCharUuid = Guid("12345678-1234-1234-1234-123456789abe");
+
+  /// Quét BLE trong 4 giây và trả về danh sách thiết bị tìm thấy
   static Future<List<BluetoothDevice>> scanDevices() async {
     final devices = <BluetoothDevice>{};
 
@@ -19,19 +23,32 @@ class BLEService {
     return devices.toList();
   }
 
+  /// Gửi dữ liệu tới ESP32 qua BLE
   static Future<void> sendData(BluetoothDevice device, String data) async {
-    await device.connect();
-    // Giả sử ESP32 có service/characteristic UUID sau, bạn thay theo firmware:
-    final serviceUuid = Guid("0000ffe0-0000-1000-8000-00805f9b34fb");
-    final charUuid = Guid("0000ffe1-0000-1000-8000-00805f9b34fb");
+    try {
+      // Kết nối nếu chưa kết nối
+      if (device.connectionState != BluetoothConnectionState.connected) {
+        await device.connect(timeout: const Duration(seconds: 5));
+      }
 
-    final services = await device.discoverServices();
-    final service = services.firstWhere((s) => s.uuid == serviceUuid);
-    final characteristic = service.characteristics.firstWhere((c) => c.uuid == charUuid);
+      final services = await device.discoverServices();
+      final service = services.firstWhere(
+        (s) => s.uuid == serviceUuid,
+        orElse: () => throw Exception("Service UUID not found"),
+      );
 
-    final bytes = data.codeUnits;
-    await characteristic.write(bytes);
+      final characteristic = service.characteristics.firstWhere(
+        (c) => c.uuid == rxCharUuid,
+        orElse: () => throw Exception("RX Characteristic not found"),
+      );
 
-    await device.disconnect();
+      final bytes = data.codeUnits;
+      await characteristic.write(bytes, withoutResponse: false);
+    } catch (e) {
+      print("BLE write error: $e");
+    } finally {
+      // Ngắt kết nối sau khi gửi
+      await device.disconnect();
+    }
   }
 }
