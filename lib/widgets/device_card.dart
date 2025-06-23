@@ -21,7 +21,11 @@ class DeviceCard extends StatelessWidget {
       child: ListTile(
         leading: Icon(getDeviceIcon(device.type)),
         title: Text(device.name),
-        subtitle: Text('${device.connection} - ${device.address}'),
+        subtitle: Text(
+          device.connection == 'BLE'
+              ? 'BLE - ${device.mac} → ${device.ip}'
+              : 'IP - ${device.ip}',
+        ),
         trailing: IconButton(
           icon: const Icon(Icons.delete, color: Colors.red),
           onPressed: onDelete,

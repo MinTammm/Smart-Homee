@@ -2,8 +2,17 @@ import 'package:http/http.dart' as http;
 import 'dart:convert';
 
 class ESP32HttpService {
+  /// Kiểm tra địa chỉ có phải là IP không (vd: 192.168.1.114)
+  static bool isValidIp(String address) {
+    final regex = RegExp(r'^(\d{1,3}\.){3}\d{1,3}$');
+    return regex.hasMatch(address);
+  }
   /// Gửi lệnh điều khiển (mở, đóng, dừng, bật, tắt...)
   static Future<bool> sendCommand(String address, String command) async {
+    if (address.isEmpty) {
+    print('[ESP32HttpService] Địa chỉ IP rỗng!');
+    return false;
+    }
     try {
       final url = Uri.parse('http://$address/command?cmd=$command');
       print('[ESP32HttpService] Gửi lệnh: GET $url');

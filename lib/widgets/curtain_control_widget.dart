@@ -23,13 +23,13 @@ class _CurtainControlWidgetState extends State<CurtainControlWidget> {
 
   Future<void> _fetchStatus() async {
     setState(() => loading = true);
-    final result = await ESP32HttpService.getCurtainPercentage(widget.device.address);
+    final result = await ESP32HttpService.getCurtainPercentage(widget.device.ip);
     if (result != null) setState(() => percentage = result);
     setState(() => loading = false);
   }
 
   Future<void> _sendCommand(String cmd) async {
-    await ESP32HttpService.sendCommand(widget.device.address, cmd);
+    await ESP32HttpService.sendCommand(widget.device.ip, cmd);
     await _fetchStatus();
   }
 
@@ -37,37 +37,32 @@ class _CurtainControlWidgetState extends State<CurtainControlWidget> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(title: Text(widget.device.name)),
-      body: Padding(
-        padding: const EdgeInsets.all(16),
+      body: RefreshIndicator(
+        onRefresh: _fetchStatus,
         child: loading
             ? const Center(child: CircularProgressIndicator())
-            : Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
+            : ListView(
+                padding: const EdgeInsets.all(16),
                 children: [
-                  // Nhãn dán biểu tượng rèm
                   const Center(
                     child: Icon(Icons.window, size: 100, color: Colors.blueGrey),
                   ),
                   const SizedBox(height: 20),
-
                   Text(
                     'Độ mở rèm: $percentage%',
                     textAlign: TextAlign.center,
                     style: const TextStyle(fontSize: 18),
                   ),
                   const SizedBox(height: 10),
-
                   Slider(
                     value: percentage.toDouble(),
                     min: 0,
                     max: 100,
                     divisions: 20,
                     label: '$percentage%',
-                    onChanged: null, // Read-only slider
+                    onChanged: null, // Read-only
                   ),
                   const SizedBox(height: 30),
-
-                  // Ba nút tròn điều khiển nằm ngang
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                     children: [

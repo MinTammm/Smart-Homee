@@ -4,6 +4,7 @@ import 'package:uuid/uuid.dart';
 import '../models/device_model.dart';
 import '../services/ble_service.dart';
 import '../services/esp32_http_service.dart';
+import '../services/ble_mac_to_ip.dart';
 
 class AddDeviceScreen extends StatefulWidget {
   const AddDeviceScreen({super.key});
@@ -58,14 +59,18 @@ class _AddDeviceScreenState extends State<AddDeviceScreen> {
         return;
       }
     }
-
+    final macUpper = address.trim().toUpperCase();
+    final mappedIp = connection == 'BLE' ? bleMacToStaticIp[macUpper] ?? '' : ip;
     final newDevice = Device(
       id: const Uuid().v4(),
       name: name.trim(),
       connection: connection,
-      address: connection == 'IP' ? ip : address.trim(),
+      address: address.trim(),              // BLE MAC hoặc IP
+      mac: connection == 'BLE' ? macUpper : '',
+      ip: mappedIp,                         // IP dùng cho HTTP
       type: type,
     );
+
 
     Navigator.pop(context, newDevice);
   }
@@ -112,11 +117,21 @@ class _AddDeviceScreenState extends State<AddDeviceScreen> {
                     title: Text(d.name.isNotEmpty ? d.name : d.id.toString()),
                     subtitle: Text(d.id.toString()),
                     onTap: () {
+                      final mac = d.id.toString().toUpperCase(); // lấy MAC
+                      final ip = bleMacToStaticIp[mac] ?? '';    // tra IP từ ánh xạ
+
                       setState(() {
-                        address = d.id.toString();
+                        address = d.id.toString();  // gán BLE MAC cho address
                         name = d.name.isNotEmpty ? d.name : 'BLE Device';
+                        ipController.text = ip;     // hiển thị IP ánh xạ được
                       });
+                      if (ip.isEmpty) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(content: Text('Không tìm thấy IP tương ứng cho thiết bị BLE: $mac')),
+                        );
+                      }
                     },
+
                     selected: d.id.toString() == address,
                     selectedTileColor: Colors.blue.shade100,
                   ),

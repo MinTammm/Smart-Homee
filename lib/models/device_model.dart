@@ -25,7 +25,7 @@ extension DeviceTypeExtension on DeviceType {
       case 'door':
         return DeviceType.door;
       default:
-        return DeviceType.curtain; // default fallback
+        return DeviceType.curtain;
     }
   }
 }
@@ -33,23 +33,29 @@ extension DeviceTypeExtension on DeviceType {
 class Device {
   final String id;
   final String name;
+  final String address;
   final String connection; // 'IP' or 'BLE'
-  final String address;    // IP address or BLE MAC/id
+  final String mac; // dùng để ánh xạ IP
+  final String ip;  // IP dùng để gửi lệnh qua HTTP
   final DeviceType type;
 
   Device({
     required this.id,
     required this.name,
     required this.connection,
-    required this.address,
+    required this.mac,
     required this.type,
+    required this.address,
+    required this.ip,
   });
 
   factory Device.fromJson(Map<String, dynamic> json) => Device(
         id: json['id'],
         name: json['name'],
         connection: json['connection'],
-        address: json['address'],
+        mac: json['mac'] ?? '',
+        address: json['address'] ?? '',
+        ip: json['ip'],
         type: DeviceTypeExtension.fromString(json['type']),
       );
 
@@ -57,6 +63,8 @@ class Device {
         'id': id,
         'name': name,
         'connection': connection,
+        'mac': mac,
+        'ip': ip,
         'address': address,
         'type': type.name,
       };
