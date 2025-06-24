@@ -1,0 +1,330 @@
+#include <WiFi.h>
+#include <Preferences.h>
+#include <BLEDevice.h>
+#include <BLEUtils.h>
+#include <BLEServer.h>
+#include <WebServer.h>
+#include <BLE2902.h>
+#include <ArduinoJson.h>
+
+// ==== Cấu hình WiFi static IP ====
+const char* ssid = "Tang 4 2.4";
+const char* password = "0123456789";
+IPAddress local_IP(192,168,1,114);   
+IPAddress gateway(192,168,1,1);
+IPAddress subnet(255,255,255,0);
+
+// ==== BLE UUID ====
+#define SERVICE_UUID            "12345678-1234-1234-1234-123456789abc"
+#define CHARACTERISTIC_UUID_TX  "12345678-1234-1234-1234-123456789abd"
+#define CHARACTERISTIC_UUID_RX  "12345678-1234-1234-1234-123456789abe"
+
+// ==== Buffer UART ====
+#define UART_BUF_SIZE 128
+char uartBuf[UART_BUF_SIZE];
+int uartBufIndex = 0;
+
+// ==== Trạng thái rèm ====
+volatile int currentSteps = 0;
+int lastSavedSteps = -1;
+const int MAX_STEPS = 6400;  
+
+// ==== BLE objects ====
+BLEServer* pServer = nullptr;
+BLECharacteristic* pTxCharacteristic;
+BLECharacteristic* pRxCharacteristic;
+bool deviceConnected = false;
+
+// ==== HTTP server ====
+WebServer server(80);
+
+// ==== Preferences ====
+Preferences preferences;
+
+// ==== Điều khiển rèm ====
+bool moving = false;
+bool directionOpen = true;
+String lastCommandSent = "";
+// ======= Hàm lưu trạng thái =======
+void saveCurtainSteps(int steps) {
+  if (steps != lastSavedSteps) {
+    preferences.putInt("curtain_steps", steps);
+    lastSavedSteps = steps;
+    Serial.printf("Saved curtain steps: %d\n", steps);
+  }
+}
+
+int loadCurtainSteps() {
+  int val = preferences.getInt("curtain_steps", 0);
+  if (val < 0 || val > MAX_STEPS) val = 0;
+  lastSavedSteps = val;
+  Serial.printf("Loaded curtain steps: %d\n", val);
+  return val;
+}
+
+void saveWiFiCredentials() {
+  preferences.putString("ssid", String(ssid));
+  preferences.putString("password", String(password));
+  Serial.println("Saved WiFi credentials");
+}
+
+// ====== Gửi trạng thái qua BLE ======
+void sendCurtainStatusBLE() {
+  if (deviceConnected) {
+    String status = "STEPS:" + String(currentSteps);
+    pTxCharacteristic->setValue(status.c_str());
+    pTxCharacteristic->notify();
+    Serial.println("Sent BLE: " + status);
+  }
+}
+
+// ===== Xử lý lệnh từ app (BLE hoặc HTTP) =====
+void handleCommand(String cmd) {
+  cmd.trim();
+  cmd.toUpperCase();
+  Serial.println("Handle command: " + cmd);
+
+  if (cmd == "OPEN") {
+    directionOpen = true;
+    moving = true;
+    Serial2.println("ACK:OPEN");
+  } else if (cmd == "CLOSE") {
+    directionOpen = false;
+    moving = true;
+    Serial2.println("ACK:CLOSE");
+  } else if (cmd == "STOP") {
+    moving = false;
+    Serial2.println("ACK:STOP");
+  } else {
+    Serial2.println("ACK:UNKNOWN");
+  }
+}
+
+
+// ===== Xử lý nhận UART từ Arduino =====
+void handleUART() {
+  while (Serial2.available()) {
+    char c = Serial2.read();
+    if (c == '\n' || c == '\r') {
+      if (uartBufIndex > 0) {
+        uartBuf[uartBufIndex] = 0;
+        String line = String(uartBuf);
+        line.trim(); // xóa khoảng trắng và newline
+        uartBufIndex = 0;
+
+        Serial.println(">> From Arduino: [" + line + "]");
+
+        if (line.startsWith("STEPS:")) {
+          int val = line.substring(6).toInt();
+          if (val != currentSteps) {
+            currentSteps = val;
+            saveCurtainSteps(currentSteps);
+            Serial.println("Updated steps from Arduino: " + String(currentSteps));
+            sendCurtainStatusBLE();
+          }
+        } else if (line.startsWith("ACK:")) {
+          String cmd = line.substring(4);
+          Serial.println("Arduino ACK: " + cmd);
+          if (cmd == "OPEN") {
+            moving = true;
+            directionOpen = true;
+          } else if (cmd == "CLOSE") {
+            moving = true;
+            directionOpen = false;
+          } else if (cmd == "STOP") {
+            moving = false;
+          }
+
+          lastCommandSent = cmd; //  cập nhật để không gửi lại
+        } else {
+          Serial.println(">> Unknown UART message: " + line);
+        }
+      }
+    } else if (uartBufIndex < UART_BUF_SIZE - 1) {
+      uartBuf[uartBufIndex++] = c;
+    }
+  }
+}
+
+
+
+// ===== BLE Callbacks =====
+class MyServerCallbacks : public BLEServerCallbacks {
+  void onConnect(BLEServer* pServer) {
+    deviceConnected = true;
+    Serial.println("BLE device connected");
+    sendCurtainStatusBLE();
+  }
+
+  void onDisconnect(BLEServer* pServer) {
+    deviceConnected = false;
+    Serial.println("BLE device disconnected");
+  }
+};
+
+class MyCallbacks : public BLECharacteristicCallbacks {
+  void onWrite(BLECharacteristic *pCharacteristic) override {
+    String cmd = String(pCharacteristic->getValue().c_str()); 
+    Serial.println("Received BLE command: " + cmd);
+    Serial.println(">> Command source: BLE");
+    handleCommand(cmd);
+  }
+};
+
+// ===== HTTP Server Handlers =====
+void handleHttpRoot() {
+  server.send(200, "text/plain", "ESP32 Curtain Controller");
+}
+
+void handleHttpCommand() {
+  if (!server.hasArg("cmd")) {
+    server.send(400, "text/plain", "Missing cmd");
+    return;
+  }
+  String cmd = server.arg("cmd");
+  Serial.println("Received HTTP command: " + cmd);
+  Serial.println(">> Command source: HTTP over static IP");
+  handleCommand(cmd);
+  server.send(200, "text/plain", "ACK:" + cmd);
+}
+
+void handleHttpStatus() {
+  StaticJsonDocument<128> doc;
+  int percentage = map(currentSteps, 0, MAX_STEPS, 0, 100);
+  doc["percentage"] = percentage;
+  doc["steps"] = currentSteps;
+
+  String response;
+  serializeJson(doc, response);
+  server.send(200, "application/json", response);
+}
+
+
+void handleHttpPing() {
+  StaticJsonDocument<128> doc;
+  doc["status"] = "ok";
+  doc["ip"] = WiFi.localIP().toString();
+  doc["steps"] = currentSteps;
+
+  String response;
+  serializeJson(doc, response);
+  server.send(200, "application/json", response);
+}
+
+// ===== Setup =====
+void setup() {
+  Serial.begin(115200);
+  Serial2.begin(115200, SERIAL_8N1, 16, 17);
+
+  preferences.begin("curtain", false);
+  currentSteps = loadCurtainSteps();
+
+  // Kết nối WiFi IP tĩnh
+  if (!WiFi.config(local_IP, gateway, subnet)) {
+    Serial.println("STA Failed to configure");
+  }
+  WiFi.begin(ssid, password);
+  Serial.print("Connecting WiFi ..");
+  while (WiFi.status() != WL_CONNECTED) {
+    delay(2000);
+    Serial.print(".");
+  }
+  Serial.println();
+  Serial.print("WiFi connected, IP: ");
+  Serial.println(WiFi.localIP());
+  Serial.println(">> HTTP control available via static IP");
+
+  saveWiFiCredentials();
+
+  // BLE setup
+  BLEDevice::init("ESP32_Curtain");
+  pServer = BLEDevice::createServer();
+  pServer->setCallbacks(new MyServerCallbacks());
+
+  BLEService *pService = pServer->createService(SERVICE_UUID);
+
+  pTxCharacteristic = pService->createCharacteristic(
+                      CHARACTERISTIC_UUID_TX,
+                      BLECharacteristic::PROPERTY_NOTIFY
+                    );
+  pTxCharacteristic->addDescriptor(new BLE2902());
+
+  pRxCharacteristic = pService->createCharacteristic(
+                      CHARACTERISTIC_UUID_RX,
+                      BLECharacteristic::PROPERTY_WRITE
+                    );
+  pRxCharacteristic->setCallbacks(new MyCallbacks());
+
+  pService->start();
+
+  BLEAdvertising *pAdvertising = BLEDevice::getAdvertising();
+  pAdvertising->addServiceUUID(SERVICE_UUID);
+  pAdvertising->setScanResponse(true);
+  pAdvertising->setMinPreferred(0x06);  
+  pAdvertising->setMinPreferred(0x12);
+  BLEDevice::startAdvertising();
+  Serial.println("BLE advertising started");
+
+  // HTTP server setup
+  server.on("/", handleHttpRoot);
+  server.on("/command", handleHttpCommand);
+  server.on("/status", handleHttpStatus);
+  server.on("/ping", []() {
+    server.send(200, "text/plain", "pong");
+  });
+  server.begin();
+  Serial.println("HTTP server started");
+}
+
+// ===== Loop =====
+unsigned long lastSendTime = 0;
+
+void readFromArduino() {
+  while (Serial2.available()) {
+    String line = Serial2.readStringUntil('\n');
+    line.trim();
+    if (line.startsWith("ACK:")) {
+      String cmd = line.substring(4);
+      cmd.trim();
+      Serial.println("Arduino ACK: " + cmd);
+      
+      if (cmd == "OPEN") {
+        moving = true;
+        directionOpen = true;
+      } else if (cmd == "CLOSE") {
+        moving = true;
+        directionOpen = false;
+      } else if (cmd == "STOP") {
+        moving = false;
+      }
+    }
+    else if (line.startsWith("STEPS:")) {
+      // Đọc trạng thái steps nếu cần
+    }
+  }
+}
+
+void loop() {
+  server.handleClient();
+  handleUART();
+  readFromArduino();  //  GỌI ĐỌC PHẢN HỒI TỪ ARDUINO
+
+  // Gửi lệnh đến Arduino nếu thay đổi
+  static String lastCommandSent = "";
+  String currentCommand = moving ? (directionOpen ? "OPEN" : "CLOSE") : "STOP";
+
+  if (currentCommand != lastCommandSent) {
+    Serial.println("Sending to Arduino (Serial2): [" + currentCommand + "]");
+    Serial2.println(currentCommand);
+    Serial.println("currentCommand: " + currentCommand + ", lastSent: " + lastCommandSent);
+    lastCommandSent = currentCommand;
+  }
+
+  // Gửi BLE trạng thái định kỳ
+  if (deviceConnected && millis() - lastSendTime > 500) {
+    sendCurtainStatusBLE();
+    lastSendTime = millis();
+  }
+
+  delay(200);
+}
